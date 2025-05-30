@@ -1,37 +1,3 @@
-def extract_item12_text(pdf_path):
-    with pdfplumber.open(pdf_path) as pdf:
-        full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-
-    matches = list(re.finditer(
-        r'^\s*ITEM\s*12[\.\s\S]*?(?=^\s*ITEM\s*13)',
-        full_text,
-        re.IGNORECASE | re.DOTALL | re.MULTILINE
-    ))
-
-    if matches:
-        match = matches[-1]  # נבחר את ההתאמה האחרונה - כלומר את הפרק האמיתי, לא טבלת תוכן
-        text = match.group(0)
-        text = re.sub(r'(Page|עמוד)\s*\d+', '', text, flags=re.IGNORECASE)
-        return ' '.join(text.split())
-
-    return "No ITEM 12 section found."
-def extract_item12_text(pdf_path):
-    with pdfplumber.open(pdf_path) as pdf:
-        full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-
-    matches = list(re.finditer(
-        r'^\s*ITEM\s*12[\.\s\S]*?(?=^\s*ITEM\s*13)',
-        full_text,
-        re.IGNORECASE | re.DOTALL | re.MULTILINE
-    ))
-
-    if matches:
-        match = matches[-1]  # נבחר את ההתאמה האחרונה - כלומר את הפרק האמיתי, לא טבלת תוכן
-        text = match.group(0)
-        text = re.sub(r'(Page|עמוד)\s*\d+', '', text, flags=re.IGNORECASE)
-        return ' '.join(text.split())
-
-    return "No ITEM 12 section found."
 from flask import Flask, request, send_file
 import os
 import pdfplumber
@@ -47,92 +13,41 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def extract_item12_text(pdf_path):
     with pdfplumber.open(pdf_path) as pdf:
         full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-
-    matches = list(re.finditer(
+    match = re.search(
         r'^\s*ITEM\s*12[\.\s\S]*?(?=^\s*ITEM\s*13)',
         full_text,
         re.IGNORECASE | re.DOTALL | re.MULTILINE
-    ))
-
-    if matches:
-        match = matches[-1]  # נבחר את ההתאמה האחרונה - כלומר את הפרק האמיתי, לא טבלת תוכן
+    )
+    if match:
         text = match.group(0)
         text = re.sub(r'(Page|עמוד)\s*\d+', '', text, flags=re.IGNORECASE)
         return ' '.join(text.split())
-
-    return "No ITEM 12 section found."
+    return None
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
         uploaded_files = request.files.getlist("pdf_files")
-        memory_file = BytesIO()
+        if not uploaded_files:
+            return "לא נבחר קובץ!", 400
 
+        memory_file = BytesIO()
         with zipfile.ZipFile(memory_file, 'w') as zf:
             for file in uploaded_files:
                 filename = secure_filename(file.filename)
+                if not filename:
+                    continue
                 file_path = os.path.join(UPLOAD_FOLDER, filename)
-                file.save(file_path)
-
+                try:
+                    file.save(file_path)
+                except Exception as e:
+                    return f"שגיאה בשמירת קובץ: {e}", 500
                 extracted_text = extract_item12_text(file_path)
-
-                print(f"=== קובץ: {filename} ===")
-from flask import Flask, request, send_file
-import os
-import pdfplumber
-import re
-from werkzeug.utils import secure_filename
-from io import BytesIO
-import zipfile
-
-app = Flask(__name__)
-UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-def extract_item12_text(pdf_path):
-    with pdfplumber.open(pdf_path) as pdf:
-        full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-
-    matches = list(re.finditer(
-        r'^\s*ITEM\s*12[\.\s\S]*?(?=^\s*ITEM\s*13)',
-        full_text,
-        re.IGNORECASE | re.DOTALL | re.MULTILINE
-    ))
-
-    if matches:
-        match = matches[-1]  # נבחר את ההתאמה האחרונה - כלומר את הפרק האמיתי, לא טבלת תוכן
-        text = match.group(0)
-        text = re.sub(r'(Page|עמוד)\s*\d+', '', text, flags=re.IGNORECASE)
-        return ' '.join(text.split())
-
-    return "No ITEM 12 section found."
-
-@app.route("/", methods=["GET", "POST"])
-def index():
-    if request.method == "POST":
-        uploaded_files = request.files.getlist("pdf_files")
-        memory_file = BytesIO()
-
-        with zipfile.ZipFile(memory_file, 'w') as zf:
-            for file in uploaded_files:
-                filename = secure_filename(file.filename)
-                file_path = os.path.join(UPLOAD_FOLDER, filename)
-                file.save(file_path)
-
-                extracted_text = extract_item12_text(file_path)
-
-                print(f"=== קובץ: {filename} ===")
-                if extracted_text:
-                    print(f"אורך הטקסט שהופק: {len(extracted_text)} תווים")
-                    txt_filename = filename.replace(".pdf", "_item12.txt")
-                    zf.writestr(txt_filename, extracted_text)
-                else:
-                    print("לא הופק טקסט בכלל")
-
+                txt_filename = filename.replace(".pdf", "_item12.txt")
+                zf.writestr(txt_filename, extracted_text or "לא נמצא טקסט")
         memory_file.seek(0)
         return send_file(memory_file, download_name="item12_texts.zip", as_attachment=True)
-
-    return """
+    return '''
     <!doctype html>
     <html>
         <head><title>PDF Item12 Extractor</title></head>
@@ -145,9 +60,9 @@ def index():
             </form>
         </body>
     </html>
-    """
+    '''
+
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port)
 
