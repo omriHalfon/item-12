@@ -25,43 +25,47 @@ def extract_item12_text(pdf_path):
     return None
 
 @app.route("/", methods=["GET", "POST"])
+@app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
-        uploaded_files = request.files.getlist("pdf_files")
-        if not uploaded_files:
-            return "לא נבחר קובץ!", 400
+        uploaded_file = request.files.get("pdf_files")
+        if uploaded_file:
+            filename = secure_filename(uploaded_file.filename)
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
+            uploaded_file.save(file_path)
+            extracted_text = extract_item12_text(file_path)
+            if extracted_text:
+                # מציג טקסט ישירות בדף החדש
+                return f"""
+                <h2>תוצאה עבור: {filename}</h2>
+                <pre style="white-space: pre-wrap; direction: ltr;">{extracted_text}</pre>
+                <a href="/">חזור לדף הראשי</a>
+                """
+            else:
+                return f"""
+                <h2>לא נמצא טקסט בפרק 12</h2>
+                <a href="/">נסה שוב</a>
+                """
+        else:
+            return """
+            <h2>לא נבחר קובץ</h2>
+            <a href="/">נסה שוב</a>
+            """
 
-        memory_file = BytesIO()
-        with zipfile.ZipFile(memory_file, 'w') as zf:
-            for file in uploaded_files:
-                filename = secure_filename(file.filename)
-                if not filename:
-                    continue
-                file_path = os.path.join(UPLOAD_FOLDER, filename)
-                try:
-                    file.save(file_path)
-                except Exception as e:
-                    return f"שגיאה בשמירת קובץ: {e}", 500
-                extracted_text = extract_item12_text(file_path)
-                txt_filename = filename.replace(".pdf", "_item12.txt")
-                zf.writestr(txt_filename, extracted_text or "לא נמצא טקסט")
-        memory_file.seek(0)
-        return send_file(memory_file, download_name="item12_texts.zip", as_attachment=True)
-    return '''
+    return """
     <!doctype html>
     <html>
         <head><title>PDF Item12 Extractor</title></head>
         <body>
             <h1>Extract Item 12 from PDFs</h1>
             <form method="post" enctype="multipart/form-data">
-                <input type="file" name="pdf_files" multiple accept="application/pdf">
+                <input type="file" name="pdf_files" accept="application/pdf">
                 <br><br>
-                <input type="submit" value="Extract and Download">
+                <input type="submit" value="Extract and Show">
             </form>
         </body>
     </html>
-    '''
-
+    """
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
